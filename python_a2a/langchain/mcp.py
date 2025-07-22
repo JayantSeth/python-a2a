@@ -461,6 +461,9 @@ def to_mcp_server(langchain_tools):
 
 
 async def get_tool(available_tool: MCPTool, mcp_url: str):
+    """
+    Get langchain tool function for a mentioned MCP Tool from MCP Server
+    """
     tool_name = available_tool.name
     if not tool_name:
         logger.exception("Tool Name not found in the tool")
@@ -468,9 +471,6 @@ async def get_tool(available_tool: MCPTool, mcp_url: str):
     parameters = available_tool.inputSchema["properties"].values()
     args = [i["title"].lower() for i in parameters]
     args = [i.replace(" ", "_") for i in args]
-
-    print(f"Tool Name: {tool_name}, MCP URL: {mcp_url}, Args1: {args}")
-
     arg_names = ", ".join(args)
     func_def_str = f"""
 @tool
@@ -480,8 +480,6 @@ async def {tool_name}({arg_names}):
     body = {{}}
     for a in args2:
         body[a] = locals()[a]
-    data = f"Awesome, {arg_names}, MCP URL {mcp_url} Args2: {{args2}} {{body}}"
-    print(data)
     try:
         async with streamablehttp_client("{mcp_url}") as (
             read_stream, write_stream, _,
@@ -489,7 +487,6 @@ async def {tool_name}({arg_names}):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
                 result = await session.call_tool("{tool_name}", body)
-                print(f"Result: {{result}}")
                 if "error" in result:
                     return f"Error: {{result['error']}}"
                 
@@ -507,16 +504,14 @@ async def {tool_name}({arg_names}):
                 """
     dynamic_scope = {}
 
-    # print(f"Func def str: {func_def_str}")
     exec(func_def_str, globals(), dynamic_scope)
-    # print(f"Stuff: Awesome")
     the_tool = dynamic_scope[tool_name]
     return the_tool
 
 
 async def to_langchain_tool(mcp_url, tool_name=None):
     """
-    Convert MCP server tool(s) to LangChain tool(s).
+    Get Convert MCP server tool(s) & Convert them to LangChain tool(s).
     
     Args:
         mcp_url: URL of the MCP server
@@ -527,10 +522,13 @@ async def to_langchain_tool(mcp_url, tool_name=None):
     
     Example:
         >>> # Convert a specific tool
-        >>> calculator_tool = to_langchain_tool("http://localhost:8000", "calculator")
-        >>> 
+        >>> calculator_tool = await to_langchain_tool("http://localhost:8080/mcp", "calculator")
+        >>> #or
+        >>> calculator_tool = asyncio.run(to_langchain_tool("http://localhost:8080/mcp", "calculator"))
         >>> # Convert all tools from a server
-        >>> tools = to_langchain_tool("http://localhost:8000")
+        >>> tools = await to_langchain_tool("http://localhost:8080/mcp")
+        >>> #or
+        >>> tools = asyncio.run(to_langchain_tool("http://localhost:8080/mcp"))
         
     Raises:
         LangChainNotInstalledError: If LangChain is not installed
@@ -552,7 +550,6 @@ async def to_langchain_tool(mcp_url, tool_name=None):
                 async with ClientSession(read_stream, write_stream) as session:
                     await session.initialize()
                     available_tools = await session.list_tools()
-                    print(f"Available Tools: {available_tools}")
 
                     if tool_name:
                         available_tool = [t for t in available_tools.tools if t.name == tool_name][0]
@@ -570,69 +567,6 @@ async def to_langchain_tool(mcp_url, tool_name=None):
         
         # Filter tools if a specific tool is requested
         
-    except MCPToolConversionError:
-        # Re-raise without wrapping
-        raise
-    except Exception as e:
-        logger.exception("Failed to convert MCP tool to LangChain format")
-        raise MCPToolConversionError(f"Failed to convert MCP tool: {str(e)}")
-
-async def get_langchain_tools(mcp_url, tool_name=None):   
-    langchain_tools = []
-    try:
-        async with streamablehttp_client(f"{mcp_url}") as (
-            read_stream, write_stream, _,
-        ):
-            async with ClientSession(read_stream, write_stream) as session:
-                await session.initialize()
-                available_tools = await session.list_tools()
-                print(f"Available Tools: {available_tools}")
-
-                if tool_name:
-                    available_tool = [t for t in available_tools.tools if t.name == tool_name][0]
-                    the_tool = await get_tool(available_tool, mcp_url)
-                    return the_tool
-                
-                all_available_tools = [t for t in available_tools.tools ]
-                for a_tool in all_available_tools:
-                    the_tool = await get_tool(a_tool, mcp_url)
-                    langchain_tools.append(the_tool)
-                return langchain_tools
-    except Exception as e:
-        logger.error(f"Error getting tools from MCP server: {e}")
-        raise MCPToolConversionError(f"Failed to get tools from MCP server: {str(e)}")
-
-def to_langchain_tool_sync(mcp_url, tool_name=None):
-    """
-    Convert MCP server tool(s) to LangChain tool(s).
-    
-    Args:
-        mcp_url: URL of the MCP server
-        tool_name: Optional specific tool to convert (if None, converts all tools)
-    
-    Returns:
-        LangChain tool or list of tools
-    
-    Example:
-        >>> # Convert a specific tool
-        >>> calculator_tool = to_langchain_tool("http://localhost:8000", "calculator")
-        >>> 
-        >>> # Convert all tools from a server
-        >>> tools = to_langchain_tool("http://localhost:8000")
-        
-    Raises:
-        LangChainNotInstalledError: If LangChain is not installed
-        MCPToolConversionError: If tool conversion fails
-    """
-    if not HAS_LANGCHAIN:
-        raise LangChainNotInstalledError()
-    
-    if not HAS_MCP:
-        raise MCPNotInstalledError()
-        
-    try:
-        tools = asyncio.run(get_langchain_tools(mcp_url, tool_name))
-        return tools
     except MCPToolConversionError:
         # Re-raise without wrapping
         raise
